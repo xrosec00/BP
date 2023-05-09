@@ -1,0 +1,1476 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.1//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_2.dtd'>
+<nta>
+	<declaration>// Place global declarations here.
+const int N = 3;        //number of tasks
+const int buffSize = N;    //size of buffer, in case of periodic, sporadic sets N = buffSize, in aperiodic sets buffSize - N-1 = max number of sporadic tasks that can spawn
+const int P = 6;        //number of implemented policies
+typedef int[0, N-1] t_id;
+typedef int[0,buffSize-1] b_id;
+
+typedef struct {        //custom structure defining task
+    int RELEASE_OFFSET;
+    int BCET;        //best case execution time
+    int WCET;        //worst case exucution time
+    int MIN_PERIOD;
+    int MAX_PERIOD;
+    int JITTER;        //periodic offset
+    int DEADLINE;
+    t_id id;           //id if task template in task_queue
+    b_id buffer_id;    //generated id of task
+    int pri;        //priority
+    int type;    //0 = non periodic, 1 = periodic, 2 = sporadic
+} t_task;
+
+
+broadcast chan pol[P];
+broadcast chan inserted;
+broadcast chan start_task[N];
+urgent broadcast chan task_ready[buffSize];
+urgent broadcast chan task_finished[buffSize];
+urgent broadcast chan stop[buffSize];
+urgent broadcast chan execute[buffSize];
+broadcast chan RR_reset;
+clock total;
+
+const t_task empty = {0,0,0,0,0,0,0,0,0,0,0};    //empty task
+//non schedulable - set 2
+//                   init offset     BCET     WCET    min p.    max p.    offset    deadline     id  buffer_id  pri    type
+const t_task nonsched0 = {0,             5,       5,      7,        11,       1,        7,        0,    0,       1,     1};    //periodic task
+const t_task nonsched1 = {0,             5,       5,      9,        0,        0,        7,        1,    0,       0,     2};    //sporadic task
+//const t_task nonsched2 = {11,             5,       5,      0,        0,        0,        7,        2,    0,       2,     0};    //non periodic task
+//t_task task_queue[N] = {nonsched0, nonsched1, nonsched2};        //N should be 3
+
+//FIFO schedulable - set 2a
+//                   init offset     BCET     WCET    min p.    max p.    offset    deadline     id  buffer_id  pri    type
+const t_task sched0a = {2,             3,       5,      30,        30,        0,       30,       0,      0,      1,     1};    //periodic task
+const t_task sched1a = {0,             3,       5,      7,        30,       3,         25,       1,      0,      3,     1};    //periodic task
+//const t_task sched2a = {0,             3,       5,      9,        0,        0,        50,        2,      0,      0,     2};    //sporadic task
+//t_task task_queue[N] = {sched0a, sched1a, sched2a};        //N should be 3
+
+//FIFO schedulable - set 2b
+//                   init offset     BCET     WCET    min p.    max p.    offset    deadline     id  buffer_id  pri    type
+const t_task sched0b = {2,             3,       5,      30,        30,        0,        30,       0,    0,       1,     1};    //periodic task
+const t_task sched1b = {0,             3,       5,      30,        30,        3,        25,       1,    0,       3,     1};    //periodic task
+//const t_task sched2b = {0,             3,       5,      9,        0,        0,        50,        2,    0,      0,     2};    //sporadic task
+//t_task task_queue[N] = {sched0b, sched1b, sched2b};        //N should be 3
+
+//periodic schedulable - set 3
+//                   init offset     BCET     WCET    min p.    max p.    offset    deadline     id  buffer_id  pri    type
+const t_task set3_0 = {2,             3,       5,      8,        30,        0,        30,        0,    0,        1,     1};    //periodic task
+const t_task set3_1 = {0,             3,       5,      7,        30,        3,        28,        1,    0,        3,     1};    //periodic task
+//const t_task set3_2 = {0,             3,       5,      9,        30,        0,        27,        2,    0,       0,     1};    //periodic tasks
+//t_task task_queue[N] = {set3_0, set3_1, set3_2};        //N should be 3
+
+//DMA schedulable - set 4
+//                   init offset     BCET     WCET    min p.    max p.    offset    deadline  id    buffer_id    pri    type
+const t_task set4_0 = {0,             3,       5,     11,        28,       3,        25,        0,     0,         3,     1};    //periodic task
+const t_task set4_1 = {0,             3,       5,     11,        0,        0,        50,        1,     0,         0,     2};    //sporadic task
+//const t_task set4_2 = {50,             3,       4,      0,        0,        0,        30,        2,     0,         1,     0};    //non periodic task
+//t_task task_queue[N] = {set4_0, set4_1, set4_2};         //N should be 3
+
+//RMA schedulable - set 5
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline   id    buffer_id    pri    type
+const t_task set5_0 = {2,             3,       5,      30,        30,        0,        30,        0,     0,        1,     1};    //periodic task
+const t_task set5_1 = {0,             3,       5,      20,        20,        3,        20,        1,     0,        3,     1};    //periodic task
+const t_task set5_2 = {0,             3,       5,      25,        25,        0,        25,        2,     0,        0,     1};    //periodic task
+t_task task_queue[N] = {set5_0, set5_1, set5_2};        //N should be 3
+
+//6a from presentation
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline       id    buffer_id    pri    type
+const t_task set6a_0 = {0,             12,       12,      50,        50,        0,        50,        0,     0,         1,     1};    //periodic task
+const t_task set6a_1 = {0,             10,       10,      40,        40,        0,        40,        1,     0,         2,     1};    //periodic task
+//const t_task set6a_2 = {0,             10,       10,      30,        30,        0,        30,        2,     0,        3,     1};    //periodic task
+//t_task task_queue[N] = {set6a_0, set6a_1, set6a_2};        //N should be 3
+
+//set 6b from presentation
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline       id    buffer_id    pri    type
+const t_task set6b_0 = {0,             1,       12,      50,        50,        0,        50,        0,      0,         1,     1};    //periodic task
+const t_task set6b_1 = {0,             1,       10,      40,        40,        0,        40,        1,      0,         2,     1};    //periodic task
+//const t_task set6b_2 = {0,             1,       10,      30,        30,        0,        30,        2,      0,         3,     1};    //periodic task
+//t_task task_queue[N] = {set6b_0, set6b_1, set6b_2};        //N should be 3
+
+//RMA schedulable - set 7 from presentation
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline       id    buffer_id    pri    type
+const t_task set7_0 = {0,             32,       32,      80,        80,        0,        80,        0,      0,         1,     1};    //periodic task
+const t_task set7_1 = {0,              5,        5,      40,        40,        0,        40,        1,      0,         2,     1};    //periodic task
+//const t_task set7_2 = {0,              4,        4,      16,        16,        0,        16,        2,      0,         3,     1};    //periodic task
+//t_task task_queue[N] = {set7_0, set7_1, set7_2};        //N should be 3
+
+//DMA schedulable - set 8 from presentation
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline       id    buffer_id    pri    type
+const t_task set8_0 = {0,              3,        3,      20,        20,        0,         5,        0,      0,         1,     1};    //periodic task
+const t_task set8_1 = {0,              3,        3,      12,        12,        0,         7,        1,      0,         2,     1};    //periodic task
+//const t_task set8_2 = {0,              4,        4,      10,        10,        0,        10,        2,      0,         3,     1};    //periodic task
+//const t_task set8_3 = {0,              3,        3,      20,        20,        0,        20,        3,      0,         3,     1};    //periodic task
+//t_task task_queue[N] = {set8_0, set8_1, set8_2, set8_3};        //N should be 4
+
+//EDF schedulable - set 9 from presentation
+//                   init offset     BCET     WCET    min p.    max p.    jitter    deadline       id    buffer_id    pri    type
+const t_task set9_0 = {0,              2,        2,       5,         5,        0,         5,        0,      0,         0,     1};    //periodic task
+const t_task set9_1 = {0,              4,        4,       7,         7,        0,         7,        1,      0,         0,     1};    //periodic task
+//t_task task_queue[N] = {set9_0, set9_1};        //N should be 2        to use this set tasks with id 2 and above need to be commented, otherwise UPPAAL throws an error
+
+t_task buffer[buffSize];
+t_task ready_queue[buffSize];
+int buffer_index = 0;    //number of tasks in buffer, index of buffer
+int insert_index = 0;    //index of task to insert
+int delete_index = 0;    //index of task to delete
+t_id queue_index = 0;
+typedef int t_policy;
+const int sporadic_count = 1;
+
+//defining policies as number as UPPAAL has no type enum
+t_policy FIFO = 0;
+t_policy RoundRobin = 1;
+t_policy EDF = 2;
+t_policy FPS = 3;
+t_policy DMA = 4;
+t_policy RMA = 5;
+
+
+//monitor variables and channels</declaration>
+	<template>
+		<name x="5" y="5">Task_model</name>
+		<parameter> b_id bufferID</parameter>
+		<declaration>// Place local declarations here.
+clock t_run, t_CPU, t_wait;
+const int APERIODIC = 0;
+const int PERIODIC = 1;
+const int SPORADIC = 2;
+t_task this_task;
+t_id id;
+
+void Setup() {
+     if(bufferID &lt; N) {                    //gives task id according to buffer id for periodic, sporadic and first aperiodic task
+        this_task = task_queue[bufferID];
+    }
+     else {
+        this_task = task_queue[N-1];            //supposing that only one aperiodic task is in the task queue and it is on the last position, we can regulate the amount of times an aperiodic task can spawn
+    }
+    //DEPRECATED
+    /**this_task = task_queue[queue_index];
+    if((this_task.type == PERIODIC || this_task.type == SPORADIC) &amp;&amp; queue_index &lt; buffSize-1) {
+        queue_index++;
+    }**/
+    this_task.buffer_id = bufferID;
+    id = this_task.id;
+}
+
+void QueueUp() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        if (ready_queue[i] == empty) {
+            ready_queue[i] = this_task;
+            return;
+        }
+    }
+}
+int Deadline() {
+    return this_task.DEADLINE;
+    }
+
+int BCET() {
+    return this_task.BCET;
+}
+
+int WCET() {
+    return this_task.WCET;
+}
+
+int Type() {
+    return this_task.type;
+    }</declaration>
+		<location id="id0" x="-12741" y="-13073">
+			<name x="-12767" y="-13107">Initialise</name>
+			<label kind="invariant" x="-12724" y="-13090">t_CPU' == 0 &amp;&amp;
+t_run' == 0 &amp;&amp;
+t_wait &lt;= task_queue[id].RELEASE_OFFSET</label>
+			<label kind="exponentialrate" x="-12767" y="-13081">1</label>
+		</location>
+		<location id="id1" x="-11925" y="-12809">
+			<name x="-11908" y="-12826">Finished</name>
+			<committed/>
+		</location>
+		<location id="id2" x="-11925" y="-12937">
+			<name x="-11908" y="-12962">Running</name>
+			<label kind="invariant" x="-11917" y="-12928">t_CPU' == 1 &amp;&amp; 
+t_CPU &lt;= WCET()</label>
+			<label kind="exponentialrate" x="-11934" y="-12928">1</label>
+		</location>
+		<location id="id3" x="-12240" y="-12835">
+			<name x="-12249" y="-12826">Error</name>
+			<committed/>
+		</location>
+		<location id="id4" x="-11925" y="-12690">
+			<name x="-11908" y="-12707">Periodic</name>
+			<label kind="invariant" x="-11908" y="-12690">t_run &lt;= this_task.MAX_PERIOD</label>
+		</location>
+		<location id="id5" x="-12359" y="-12673">
+			<name x="-12369" y="-12707">End</name>
+			<label kind="invariant" x="-12419" y="-12656">t_CPU' == 0 &amp;&amp;
+t_run' == 0</label>
+		</location>
+		<location id="id6" x="-11925" y="-12597">
+			<label kind="invariant" x="-11908" y="-12605">t_CPU' == 0 &amp;&amp;
+t_run' == 0</label>
+			<committed/>
+		</location>
+		<location id="id7" x="-12019" y="-12690">
+			<name x="-12096" y="-12698">Sporadic</name>
+			<label kind="exponentialrate" x="-12002" y="-12699">1</label>
+		</location>
+		<location id="id8" x="-12741" y="-12936">
+			<name x="-12801" y="-12945">Ready</name>
+			<label kind="invariant" x="-12724" y="-12962">t_wait' == 0</label>
+			<urgent/>
+		</location>
+		<location id="id9" x="-12486" y="-12937">
+			<name x="-12520" y="-12920">Wait</name>
+			<label kind="invariant" x="-12529" y="-12988">t_CPU '== 0 &amp;&amp;
+t_run' == 1</label>
+			<label kind="exponentialrate" x="-12512" y="-12937">1</label>
+		</location>
+		<location id="id10" x="-11832" y="-13022">
+			<name x="-11815" y="-13039">Suspended</name>
+			<label kind="invariant" x="-11815" y="-13022">t_CPU' == 0</label>
+		</location>
+		<location id="id11" x="-12240" y="-12937">
+			<name x="-12291" y="-12971">Execute</name>
+			<label kind="invariant" x="-12214" y="-12979">t_CPU' == 1 &amp;&amp;
+t_CPU &lt;= task_queue[id].JITTER</label>
+		</location>
+		<init ref="id0"/>
+		<transition>
+			<source ref="id11"/>
+			<target ref="id10"/>
+			<label kind="synchronisation" x="-12222" y="-13039">stop[bufferID]?</label>
+			<nail x="-12240" y="-13022"/>
+			<nail x="-11849" y="-13022"/>
+		</transition>
+		<transition>
+			<source ref="id3"/>
+			<target ref="id1"/>
+			<label kind="assignment" x="-12180" y="-12860">t_run = task_queue[id].MIN_PERIOD</label>
+			<nail x="-11959" y="-12835"/>
+		</transition>
+		<transition>
+			<source ref="id11"/>
+			<target ref="id3"/>
+			<label kind="guard" x="-12359" y="-12903">t_run &gt; Deadline()</label>
+		</transition>
+		<transition>
+			<source ref="id11"/>
+			<target ref="id2"/>
+			<label kind="assignment" x="-12214" y="-12937">t_CPU := 0</label>
+		</transition>
+		<transition>
+			<source ref="id10"/>
+			<target ref="id2"/>
+			<label kind="synchronisation" x="-12027" y="-13005">execute[bufferID]?</label>
+			<nail x="-11900" y="-13005"/>
+		</transition>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id10"/>
+			<label kind="synchronisation" x="-11824" y="-12988">stop[bufferID]?</label>
+			<nail x="-11832" y="-12937"/>
+		</transition>
+		<transition>
+			<source ref="id9"/>
+			<target ref="id3"/>
+			<label kind="guard" x="-12452" y="-12835">t_run &gt; Deadline()</label>
+			<nail x="-12486" y="-12835"/>
+		</transition>
+		<transition>
+			<source ref="id9"/>
+			<target ref="id11"/>
+			<label kind="synchronisation" x="-12435" y="-12962">execute[bufferID]?</label>
+		</transition>
+		<transition>
+			<source ref="id8"/>
+			<target ref="id9"/>
+			<label kind="synchronisation" x="-12682" y="-12937">task_ready[bufferID]!</label>
+			<label kind="assignment" x="-12682" y="-12920">insert_index = bufferID, 
+QueueUp()</label>
+		</transition>
+		<transition>
+			<source ref="id6"/>
+			<target ref="id8"/>
+			<label kind="assignment" x="-12733" y="-12808">t_run := 0,
+t_CPU := 0</label>
+			<nail x="-12444" y="-12597"/>
+			<nail x="-12741" y="-12750"/>
+		</transition>
+		<transition>
+			<source ref="id0"/>
+			<target ref="id8"/>
+			<label kind="assignment" x="-12724" y="-13030">Setup()</label>
+		</transition>
+		<transition>
+			<source ref="id7"/>
+			<target ref="id6"/>
+			<label kind="guard" x="-12180" y="-12648">t_run &gt;= this_task.MIN_PERIOD</label>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id7"/>
+			<label kind="guard" x="-12129" y="-12767">Type() == SPORADIC</label>
+			<label kind="synchronisation" x="-12138" y="-12750">task_finished[bufferID]!</label>
+			<label kind="assignment" x="-12155" y="-12733">delete_index = bufferID</label>
+		</transition>
+		<transition>
+			<source ref="id4"/>
+			<target ref="id6"/>
+			<label kind="guard" x="-11917" y="-12648">t_run &gt;= this_task.MIN_PERIOD</label>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id5"/>
+			<label kind="guard" x="-12104" y="-12809">Type() == APERIODIC</label>
+			<label kind="synchronisation" x="-12316" y="-12699">task_finished[bufferID]!</label>
+			<label kind="assignment" x="-12350" y="-12775">delete_index = bufferID,
+t_run = 0,
+t_CPU = 0</label>
+			<nail x="-12104" y="-12809"/>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id4"/>
+			<label kind="guard" x="-11916" y="-12775">Type() == PERIODIC</label>
+			<label kind="synchronisation" x="-11916" y="-12758">task_finished[bufferID]!</label>
+			<label kind="assignment" x="-11917" y="-12741">delete_index = bufferID</label>
+		</transition>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id3"/>
+			<label kind="guard" x="-12172" y="-12886">t_run &gt; Deadline()</label>
+			<nail x="-11976" y="-12886"/>
+			<nail x="-12180" y="-12886"/>
+		</transition>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id1"/>
+			<label kind="guard" x="-11917" y="-12877">t_CPU &gt;= BCET() &amp;&amp;
+t_run &lt;= Deadline()</label>
+		</transition>
+	</template>
+	<template>
+		<name>Scheduler</name>
+		<parameter>int policy_number</parameter>
+		<declaration>const int YES = 1;
+const int NO = 0;
+const int FIRST = 2;        //first task being inserted
+t_task empty = {0,0,0,0,0,0,0,0,0,0,0};
+b_id running;    //id of running task
+b_id to_suspend;
+
+void set_running() {
+    running = buffer[0].buffer_id;
+}
+
+void set_previous() {
+    to_suspend = buffer[0].buffer_id;
+}
+
+
+void empty_buffer() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize;i++) {
+        buffer[i] = empty;
+    }
+    to_suspend = 0;
+}
+
+//non cyclic buffer shifting
+void shift_buffer(){
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1; i++) {
+       buffer[i] = buffer[i+1];
+    }
+    buffer[N-1] = empty;
+    buffer_index -= 1;
+    set_running();
+}
+//cyclic buffer shifting
+void cycle_buffer() {
+    t_task temp = buffer[0];
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1; i++) {
+        if(buffer[i+1] == empty) {
+            buffer[i] = temp;
+            to_suspend = temp.buffer_id;
+            set_running();
+            return;
+        }
+        buffer[i] = buffer[i+1];
+    }
+    buffer[i] = temp;
+    to_suspend = temp.buffer_id;
+    set_running();
+}
+
+void remove_task(int id) {
+    int i = 0;
+    for(i = 0; i &lt; buffSize; i++) {
+        if(buffer[i].buffer_id == id) {
+            while(i &lt; buffSize-1) {
+                buffer[i] = buffer[i+1];
+                i++;
+            }
+        }
+    }
+    buffer[buffSize-1] = empty;
+    buffer_index -= 1;
+    set_running();
+}
+
+int change_context() {
+    if(buffer[1] == empty) {
+        return FIRST;
+    }
+    if(running != to_suspend) {
+        return YES;
+    }
+    else {
+        return NO;
+    }
+}
+
+
+</declaration>
+		<location id="id12" x="-1037" y="-1334">
+			<name x="-1020" y="-1351">Start</name>
+			<committed/>
+		</location>
+		<location id="id13" x="-1037" y="-1207">
+			<name x="-1020" y="-1207">Ready</name>
+			<label kind="exponentialrate" x="-1028" y="-1232">1</label>
+		</location>
+		<location id="id14" x="-671" y="-1207">
+			<name x="-654" y="-1224">Insert</name>
+			<label kind="comments" x="-663" y="-1130">Inserting task into buffer</label>
+			<committed/>
+		</location>
+		<location id="id15" x="-671" y="-1020">
+			<name x="-654" y="-1028">PolicyWait</name>
+		</location>
+		<location id="id16" x="-1360" y="-1190">
+			<name x="-1428" y="-1198">Remove</name>
+			<label kind="comments" x="-1351" y="-1147">Removing task from buffer</label>
+			<committed/>
+		</location>
+		<location id="id17" x="-1037" y="-1020">
+			<name x="-1071" y="-1003">StopRunning</name>
+			<committed/>
+		</location>
+		<location id="id18" x="-1037" y="-1113">
+			<name x="-1020" y="-1122">Execute</name>
+			<committed/>
+		</location>
+		<location id="id19" x="-1037" y="-1156">
+			<committed/>
+		</location>
+		<init ref="id12"/>
+		<transition>
+			<source ref="id19"/>
+			<target ref="id13"/>
+			<label kind="synchronisation" x="-1156" y="-1190">execute[running]!</label>
+		</transition>
+		<transition>
+			<source ref="id17"/>
+			<target ref="id18"/>
+			<label kind="guard" x="-1292" y="-1105">change_context() == FIRST</label>
+			<label kind="comments" x="-1241" y="-1079">Executing first task</label>
+			<nail x="-1113" y="-1045"/>
+			<nail x="-1113" y="-1113"/>
+		</transition>
+		<transition>
+			<source ref="id17"/>
+			<target ref="id13"/>
+			<label kind="guard" x="-867" y="-1130">change_context() == NO</label>
+			<label kind="comments" x="-867" y="-1105">Not changing context</label>
+			<nail x="-875" y="-1037"/>
+			<nail x="-875" y="-1156"/>
+			<nail x="-1011" y="-1156"/>
+		</transition>
+		<transition>
+			<source ref="id18"/>
+			<target ref="id19"/>
+			<label kind="synchronisation" x="-1113" y="-1147">RR_reset!</label>
+		</transition>
+		<transition>
+			<source ref="id17"/>
+			<target ref="id18"/>
+			<label kind="guard" x="-1045" y="-1096">change_context() == YES</label>
+			<label kind="synchronisation" x="-1045" y="-1079">stop[to_suspend]!</label>
+			<label kind="comments" x="-1045" y="-1054">Changing context</label>
+			<nail x="-1054" y="-1045"/>
+			<nail x="-1054" y="-1079"/>
+		</transition>
+		<transition>
+			<source ref="id16"/>
+			<target ref="id17"/>
+			<label kind="assignment" x="-1351" y="-1045">remove_task(delete_index)</label>
+			<nail x="-1360" y="-1045"/>
+			<nail x="-1181" y="-1045"/>
+		</transition>
+		<transition>
+			<source ref="id13"/>
+			<target ref="id16"/>
+			<label kind="select" x="-1326" y="-1224">index:int[0,buffSize-1]</label>
+			<label kind="synchronisation" x="-1326" y="-1190">task_finished[index]?</label>
+			<label kind="assignment" x="-1326" y="-1207">set_previous()</label>
+			<nail x="-1173" y="-1190"/>
+		</transition>
+		<transition>
+			<source ref="id15"/>
+			<target ref="id17"/>
+			<label kind="synchronisation" x="-807" y="-1020">inserted?</label>
+			<label kind="assignment" x="-832" y="-1045">set_running()</label>
+			<nail x="-849" y="-1020"/>
+		</transition>
+		<transition>
+			<source ref="id14"/>
+			<target ref="id15"/>
+			<label kind="synchronisation" x="-663" y="-1164">pol[policy_number]!</label>
+			<label kind="assignment" x="-773" y="-1164">set_previous()</label>
+		</transition>
+		<transition>
+			<source ref="id13"/>
+			<target ref="id14"/>
+			<label kind="select" x="-875" y="-1232">index:int[0,buffSize-1]</label>
+			<label kind="synchronisation" x="-875" y="-1207">task_ready[index]?</label>
+		</transition>
+		<transition>
+			<source ref="id12"/>
+			<target ref="id13"/>
+			<label kind="assignment" x="-1020" y="-1309">empty_buffer()</label>
+		</transition>
+	</template>
+	<template>
+		<name>FIFO_model</name>
+		<declaration>void shift_queue() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        ready_queue[i] = ready_queue[i+1];
+    }
+}
+
+void insert(){
+    buffer[buffer_index] = ready_queue[0];
+    shift_queue();
+    ready_queue[0] = empty;
+    if(buffer_index &lt; buffSize) {
+        buffer_index += 1;
+    }
+    return;
+}
+
+</declaration>
+		<location id="id20" x="-93" y="-187">
+			<name x="-110" y="-221">Wait</name>
+		</location>
+		<location id="id21" x="-25" y="-59">
+			<name x="-17" y="-85">Inserted</name>
+			<committed/>
+		</location>
+		<init ref="id20"/>
+		<transition>
+			<source ref="id21"/>
+			<target ref="id20"/>
+			<label kind="synchronisation" x="-153" y="-119">inserted!</label>
+			<nail x="-93" y="-59"/>
+		</transition>
+		<transition>
+			<source ref="id20"/>
+			<target ref="id21"/>
+			<label kind="synchronisation" x="-17" y="-153">pol[FIFO]?</label>
+			<label kind="assignment" x="-17" y="-136">insert()</label>
+			<nail x="-25" y="-187"/>
+		</transition>
+	</template>
+	<template>
+		<name>DMA_model</name>
+		<declaration>t_task empty = {0,0,0,0,0,0,0,0,0,0,0};
+t_task to_insert;
+
+void shift_queue() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        ready_queue[i] = ready_queue[i+1];
+    }
+}
+
+void insert() {
+    int i = 0;
+    to_insert = ready_queue[0];
+    shift_queue();
+    //buffer is empty, simply insert on first position
+    if(buffer[0] == empty) {
+        buffer[buffer_index] = to_insert;
+        buffer_index++;
+        return;
+    }
+    
+    //buffer index not 0    buffer is not empty, we have to cycle through the buffer
+    for(i = 0; i &lt; buffSize; i++) {
+        //the task to be added has the least priority, insert in empty spot behind other tasks
+        if(buffer[i] == empty) {      
+            buffer[i] = to_insert;
+            buffer_index++;
+            return;
+        }
+        if(to_insert.DEADLINE &lt; buffer[i].DEADLINE) { //weve found a task with lesser priority, insert here
+            t_task current = buffer[i];
+            buffer[i] = to_insert;
+            while(i &lt; buffSize - 1) {
+                t_task next = buffer[i+1];
+                buffer[i+1] = current;
+                i++;
+                current = next;
+            }
+            buffer_index++;
+            return;   
+        }
+    }
+}
+</declaration>
+		<location id="id22" x="-238" y="-178">
+			<name x="-248" y="-212">Wait</name>
+		</location>
+		<location id="id23" x="-102" y="-85">
+			<name x="-93" y="-119">Inserted</name>
+			<committed/>
+		</location>
+		<init ref="id22"/>
+		<transition>
+			<source ref="id23"/>
+			<target ref="id22"/>
+			<label kind="synchronisation" x="-204" y="-85">inserted!</label>
+			<nail x="-238" y="-85"/>
+		</transition>
+		<transition>
+			<source ref="id22"/>
+			<target ref="id23"/>
+			<label kind="synchronisation" x="-195" y="-204">pol[DMA]?</label>
+			<label kind="assignment" x="-93" y="-153">insert()</label>
+			<nail x="-102" y="-178"/>
+		</transition>
+	</template>
+	<template>
+		<name>RMA_model</name>
+		<declaration>t_task empty = {0,0,0,0,0,0,0,0,0,0,0};
+t_task to_insert;
+
+void shift_queue() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        ready_queue[i] = ready_queue[i+1];
+    }
+}
+
+void insert() {
+    int i = 0;
+    to_insert = ready_queue[0];
+    shift_queue();
+    //buffer is empty, simply insert on first position
+    if(buffer[0] == empty) {
+        buffer[buffer_index] = to_insert;
+        buffer_index++;
+        return;
+    }
+    
+    //buffer index not 0    buffer is not empty, we have to cycle through the buffer
+    for(i = 0; i &lt; buffSize; i++) {
+        int insert_period = (to_insert.MAX_PERIOD + to_insert.MIN_PERIOD)/2;        //average period of the task to be inserted
+        int buf_period = (buffer[i].MAX_PERIOD + buffer[i].MIN_PERIOD)/2;           //average period of the task on i index
+        //the task to be added has the least priority, insert in empty spot behind other tasks
+        if(buffer[i] == empty) {    
+            buffer[i] = to_insert;
+            buffer_index++;
+            return;
+        }
+        if(insert_period &lt; buf_period) { //weve found a task with lesser priority, insert here
+            t_task current = buffer[i];
+            buffer[i] = to_insert;
+            while(i &lt; buffSize - 1) {
+                t_task next = buffer[i+1];
+                buffer[i+1] = current;
+                i++;
+                current = next;
+            }
+            buffer_index++;
+            return;
+        }
+    }
+}  </declaration>
+		<location id="id24" x="-561" y="-331">
+			<name x="-571" y="-365">Wait</name>
+		</location>
+		<location id="id25" x="-433" y="-238">
+			<name x="-425" y="-272">Inserted</name>
+			<committed/>
+		</location>
+		<init ref="id24"/>
+		<transition>
+			<source ref="id25"/>
+			<target ref="id24"/>
+			<label kind="synchronisation" x="-535" y="-238">inserted!</label>
+			<nail x="-561" y="-238"/>
+		</transition>
+		<transition>
+			<source ref="id24"/>
+			<target ref="id25"/>
+			<label kind="synchronisation" x="-518" y="-357">pol[RMA]?</label>
+			<label kind="assignment" x="-425" y="-306">insert()</label>
+			<nail x="-433" y="-331"/>
+		</transition>
+	</template>
+	<template>
+		<name>FPS_model</name>
+		<declaration>t_task temp[N];
+t_task empty = {0,0,0,0,0,0,0,0,0,0,0};
+t_task to_insert;
+
+void shift_queue() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        ready_queue[i] = ready_queue[i+1];
+    }
+}
+
+void insert() {
+    int i = 0;
+    to_insert = ready_queue[0];
+    shift_queue();
+    //buffer index == 0        buffer is empty, simply insert on first position
+    if(buffer_index == 0) {
+        buffer[buffer_index] = to_insert;
+        buffer_index++;
+        return;
+    }
+    
+    //buffer index not 0    buffer is not empty, we have to cycle through the buffer
+    for(i = 0; i &lt; buffSize; i++) {
+        //the task to be added has the least priority, insert in empty spot behind other tasks
+        if(buffer[i] == empty) {    
+            buffer[i] = to_insert;
+            buffer_index++;
+            return;
+        }
+        if(to_insert.pri &gt; buffer[i].pri) { //weve found a task with lesser priority, insert here
+            t_task current = buffer[i];
+            buffer[i] = to_insert;
+            while(i &lt; buffSize - 1) {
+                t_task next = buffer[i+1];
+                buffer[i+1] = current;
+                i++;
+                current = next;
+            }
+            buffer_index++;
+            return;
+        }
+    }
+}
+
+/* DEPRACATED
+void insert() {
+    //temp = empty;
+    int i = 0;
+    to_insert = task_queue[insert_index];
+    if(buffer_index == 0) {                //buffer is empty, simply insert on first position
+        buffer[buffer_index] = to_insert;
+        buffer_index++;
+        return;
+    }
+    for(i = 0; i &lt; buffer_index; i++) {
+        if(to_insert.pri &gt;= buffer[i].pri){    //task on i index is more or as important, going to the next one
+            temp[i] = buffer[i];
+        }
+        else{
+            temp[i] = to_insert;
+            while(i &lt; buffer_index){
+                temp[i+1] = buffer[i];
+                i++;
+            }
+            buffer_index++;
+        }
+    }
+    buffer = temp;
+}*/</declaration>
+		<location id="id26" x="-238" y="-170">
+			<name x="-248" y="-204">Wait</name>
+		</location>
+		<location id="id27" x="-110" y="-76">
+			<name x="-102" y="-102">Inserted</name>
+			<committed/>
+		</location>
+		<init ref="id26"/>
+		<transition>
+			<source ref="id27"/>
+			<target ref="id26"/>
+			<label kind="synchronisation" x="-204" y="-76">inserted!</label>
+			<nail x="-238" y="-76"/>
+		</transition>
+		<transition>
+			<source ref="id26"/>
+			<target ref="id27"/>
+			<label kind="synchronisation" x="-204" y="-195">pol[FPS]?</label>
+			<label kind="assignment" x="-102" y="-136">insert()</label>
+			<nail x="-110" y="-170"/>
+		</transition>
+	</template>
+	<template>
+		<name>EDF_model</name>
+		<declaration>clock t_run[buffSize];
+int[-1, buffSize-1] task_id = - 1;
+b_id index = 0;
+
+//log
+int insert_deadline = 0;
+int index_deadline = 0;
+
+int isRunning(b_id id) {
+    if(id == task_id) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+int insertDeadline() {
+    return task_queue[insert_index].DEADLINE;
+}
+
+int indexDeadline() {
+    return buffer[index].DEADLINE;
+}
+
+void shift_queue() {
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1;i++) {
+        ready_queue[i] = ready_queue[i+1];
+    }
+}
+
+
+void insert_at(int pos) {
+    t_task temp = buffer[pos];
+    int i = pos + 1;
+    if(buffer[pos] == empty) {
+        buffer[pos] = ready_queue[0];
+        shift_queue();
+        buffer_index++;
+        return;
+    }
+    buffer[pos] = ready_queue[0];
+    shift_queue();
+    while(i &lt; buffSize) {
+        t_task current = buffer[i];
+        buffer[i] = temp;
+        temp = current;
+        i++;
+    }
+    buffer_index++;
+}
+
+void check_empty() {
+    if(buffer[0] == empty) {
+        task_id = -1;
+    }
+}
+
+void logF(){
+    insert_deadline = insertDeadline();
+    index_deadline = indexDeadline();
+}</declaration>
+		<location id="id28" x="-102" y="-204">
+			<name x="-119" y="-255">Wait</name>
+			<label kind="invariant" x="-340" y="-238">forall (i:b_id ) t_run[i]' == isRunning(i)</label>
+		</location>
+		<location id="id29" x="0" y="-136">
+			<name x="-85" y="-153">GetPosition</name>
+			<committed/>
+		</location>
+		<location id="id30" x="0" y="-17">
+			<name x="17" y="-25">Inserted</name>
+			<committed/>
+		</location>
+		<location id="id31" x="-68" y="-17">
+			<name x="-144" y="-17">BufferFull</name>
+			<committed/>
+		</location>
+		<location id="id32" x="0" y="34">
+			<committed/>
+		</location>
+		<init ref="id28"/>
+		<transition>
+			<source ref="id28"/>
+			<target ref="id28"/>
+			<label kind="select" x="-60" y="-297">i: int[0,N-1]</label>
+			<label kind="synchronisation" x="17" y="-289">task_finished[i]?</label>
+			<label kind="assignment" x="0" y="-272">t_run[i] = 0,
+check_empty()</label>
+			<nail x="-51" y="-280"/>
+			<nail x="8" y="-280"/>
+		</transition>
+		<transition>
+			<source ref="id28"/>
+			<target ref="id28"/>
+			<label kind="select" x="-314" y="-136">i : int[0, N-1]</label>
+			<label kind="synchronisation" x="-289" y="-119">stop[i]?</label>
+			<label kind="assignment" x="-331" y="-102">check_empty()</label>
+			<nail x="-204" y="-102"/>
+			<nail x="-238" y="-102"/>
+			<nail x="-238" y="-136"/>
+		</transition>
+		<transition>
+			<source ref="id28"/>
+			<target ref="id28"/>
+			<label kind="select" x="-323" y="-204">i : int[0, N-1]</label>
+			<label kind="synchronisation" x="-323" y="-187">execute[i]?</label>
+			<label kind="assignment" x="-323" y="-170">task_id = i</label>
+			<nail x="-238" y="-204"/>
+			<nail x="-238" y="-170"/>
+		</transition>
+		<transition>
+			<source ref="id31"/>
+			<target ref="id32"/>
+		</transition>
+		<transition>
+			<source ref="id30"/>
+			<target ref="id32"/>
+		</transition>
+		<transition>
+			<source ref="id32"/>
+			<target ref="id28"/>
+			<label kind="synchronisation" x="-195" y="17">inserted!</label>
+			<nail x="-340" y="34"/>
+			<nail x="-340" y="-68"/>
+			<nail x="-170" y="-68"/>
+		</transition>
+		<transition>
+			<source ref="id29"/>
+			<target ref="id31"/>
+			<label kind="guard" x="-144" y="-102">index == buffSize</label>
+			<label kind="comments" x="-297" y="-59">Buffer is full and there is no place
+ to insert this task, skip</label>
+		</transition>
+		<transition>
+			<source ref="id29"/>
+			<target ref="id29"/>
+			<label kind="guard" x="76" y="-178">index &lt; buffSize &amp;&amp;
+t_run[insert_index] - insertDeadline() &lt;= 
+t_run[buffer[index].buffer_id] - indexDeadline() &amp;&amp;
+indexDeadline() &gt; 0</label>
+			<label kind="assignment" x="17" y="-153">index++</label>
+			<label kind="comments" x="76" y="-221">L(t) to insert &gt;= L(t) on buffer position index
+--&gt; keep iterating</label>
+			<nail x="8" y="-144"/>
+			<nail x="68" y="-170"/>
+			<nail x="68" y="-102"/>
+		</transition>
+		<transition>
+			<source ref="id29"/>
+			<target ref="id30"/>
+			<label kind="guard" x="17" y="-93">t_run[insert_index] - insertDeadline() &gt; 
+t_run[buffer[index].buffer_id] - indexDeadline() ||
+buffer[index] == empty</label>
+			<label kind="assignment" x="17" y="-42">insert_at(index)</label>
+			<label kind="comments" x="17" y="0">L(t) to insert &lt; L(t) on buffer position index 
+--&gt; insert</label>
+		</transition>
+		<transition>
+			<source ref="id28"/>
+			<target ref="id29"/>
+			<label kind="synchronisation" x="-51" y="-229">pol[EDF]?</label>
+			<label kind="assignment" x="8" y="-204">index = 0, 
+logF()</label>
+			<nail x="-1" y="-204"/>
+		</transition>
+	</template>
+	<template>
+		<name>Monitor_model</name>
+		<declaration>int Task0sus = 0;
+int Task1sus = 0;
+int Task2sus = 0;
+int Task0run = 0;
+int Task1run = 0;
+int Task2run = 0;
+int Task0count = 0;
+int Task1count = 0;
+int Task2count = 0;
+int TaskId;
+clock CPU_total, CPU_busy;
+double total, busy, CPU_usage;
+
+void update_usage() {
+    if(total &gt; 0) {
+        CPU_usage = (busy/total) * 100;
+    }
+}
+
+void set_suspended() {
+    if(TaskId == 0) {
+        Task0sus = 1;
+        Task0run = 0;
+    }
+    else if(TaskId == 1) {
+        Task1sus = 1;
+        Task1run = 0;
+    }
+    else if(TaskId == 2) {
+        Task2sus = 1;
+        Task2run = 0;
+    }
+}
+
+void set_resumed() {
+    if(TaskId == 0 &amp;&amp; buffer[0] != empty) {
+        Task0sus = 0;
+        Task0run = 1;
+    }
+    else if(TaskId == 1) {
+        Task1sus = 0;
+        Task1run = 1;
+    }
+    else if(TaskId == 2) {
+        Task2sus = 0;
+        Task2run = 1;
+    }
+    update_usage();
+}
+
+void set_finished() {
+    if(TaskId == 0) {
+        Task0run = 0;
+        Task0sus = 0;
+    }
+    else if(TaskId == 1) {
+        Task1run = 0;
+        Task1sus = 0;
+    }
+    else if(TaskId == 2) {
+        Task2run = 0;
+        Task2sus = 0;
+    }
+    update_usage();
+}
+
+void set_count() {
+    if(TaskId == 0) {
+        Task0count++;
+    }
+    else if(TaskId == 1) {
+        Task1count++;
+    }
+    else if(TaskId == 2) {
+        Task2count++;
+    }
+    update_usage();
+}</declaration>
+		<location id="id33" x="-34" y="0">
+			<name x="-68" y="-42">CPUIdle</name>
+			<label kind="invariant" x="-17" y="-8">CPU_busy' == 0</label>
+			<label kind="exponentialrate" x="-42" y="17">1</label>
+		</location>
+		<location id="id34" x="102" y="-102">
+			<name x="76" y="-136">Resumed</name>
+			<committed/>
+		</location>
+		<location id="id35" x="102" y="102">
+			<name x="102" y="119">Finished</name>
+			<committed/>
+		</location>
+		<location id="id36" x="-204" y="0">
+			<name x="-246" y="17">ReadyIdle</name>
+			<committed/>
+		</location>
+		<location id="id37" x="238" y="0">
+			<name x="221" y="-42">CPUBusy</name>
+			<label kind="invariant" x="119" y="-8">CPU_busy' == 1</label>
+			<label kind="exponentialrate" x="238" y="17">1</label>
+		</location>
+		<location id="id38" x="425" y="0">
+			<name x="416" y="17">ReadyBusy</name>
+			<committed/>
+		</location>
+		<init ref="id33"/>
+		<transition>
+			<source ref="id38"/>
+			<target ref="id37"/>
+			<label kind="assignment" x="340" y="25">set_count()</label>
+			<nail x="314" y="34"/>
+		</transition>
+		<transition>
+			<source ref="id37"/>
+			<target ref="id38"/>
+			<label kind="select" x="323" y="-127">i : int[0, N-1]</label>
+			<label kind="synchronisation" x="323" y="-110">task_ready[i]?</label>
+			<label kind="assignment" x="323" y="-93">TaskId = i,
+busy = CPU_busy,
+total = CPU_total</label>
+			<nail x="314" y="-34"/>
+		</transition>
+		<transition>
+			<source ref="id36"/>
+			<target ref="id33"/>
+			<label kind="assignment" x="-136" y="34">set_count()</label>
+			<nail x="-102" y="34"/>
+		</transition>
+		<transition>
+			<source ref="id33"/>
+			<target ref="id36"/>
+			<label kind="select" x="-229" y="-127">i : int[0, N-1]</label>
+			<label kind="synchronisation" x="-229" y="-110">task_ready[i]?</label>
+			<label kind="assignment" x="-229" y="-93">TaskId = i,
+busy = CPU_busy,
+total = CPU_total</label>
+			<nail x="-102" y="-34"/>
+		</transition>
+		<transition>
+			<source ref="id37"/>
+			<target ref="id35"/>
+			<label kind="select" x="204" y="42">i: int[0,N-1]</label>
+			<label kind="synchronisation" x="204" y="59">task_finished[i]?</label>
+			<label kind="assignment" x="204" y="76">TaskId = i,
+busy = CPU_busy,
+total = CPU_total</label>
+			<nail x="178" y="76"/>
+		</transition>
+		<transition>
+			<source ref="id35"/>
+			<target ref="id33"/>
+			<label kind="assignment" x="0" y="93">set_finished()</label>
+			<nail x="25" y="76"/>
+		</transition>
+		<transition>
+			<source ref="id34"/>
+			<target ref="id37"/>
+			<label kind="assignment" x="136" y="-119">set_resumed()</label>
+			<nail x="178" y="-76"/>
+		</transition>
+		<transition>
+			<source ref="id33"/>
+			<target ref="id34"/>
+			<label kind="select" x="-59" y="-187">i: int[0, N-1]</label>
+			<label kind="synchronisation" x="-59" y="-170">execute[i]?</label>
+			<label kind="assignment" x="-59" y="-153">TaskId = i,
+busy = CPU_busy,
+total = CPU_total</label>
+			<nail x="26" y="-76"/>
+		</transition>
+	</template>
+	<template>
+		<name>RoundRobin_model</name>
+		<parameter>bool enabled, int quantum</parameter>
+		<declaration>clock t_quantum;
+t_id to_suspend;
+t_id running;
+
+bool RR_condition() {
+    if(enabled == true &amp;&amp; buffer_index &gt; 0) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+//cyclic buffer shifting
+void cycle_buffer() {
+    t_task temp = buffer[0];
+    int i = 0;
+    for(i = 0; i &lt; buffSize-1; i++) {
+        if(buffer[i+1] == empty) {
+            buffer[i] = temp;
+            to_suspend = temp.buffer_id;
+            running = buffer[0].buffer_id;
+            return;
+        }
+        buffer[i] = buffer[i+1];
+    }
+    buffer[i] = temp;
+    to_suspend = temp.buffer_id;
+    running = buffer[0].buffer_id;
+}</declaration>
+		<location id="id39" x="-510" y="-408">
+			<name x="-484" y="-425">Wait</name>
+			<label kind="invariant" x="-484" y="-408">t_quantum &lt;= quantum</label>
+		</location>
+		<location id="id40" x="-578" y="-306">
+			<name x="-629" y="-314">Cycle</name>
+			<committed/>
+		</location>
+		<location id="id41" x="-442" y="-306">
+			<name x="-425" y="-323">Run</name>
+			<committed/>
+		</location>
+		<location id="id42" x="-705" y="-459">
+			<name x="-722" y="-493">End</name>
+		</location>
+		<location id="id43" x="-705" y="-408">
+			<name x="-756" y="-416">Initial</name>
+			<urgent/>
+		</location>
+		<init ref="id43"/>
+		<transition>
+			<source ref="id43"/>
+			<target ref="id42"/>
+			<label kind="guard" x="-697" y="-450">enabled == false</label>
+		</transition>
+		<transition>
+			<source ref="id43"/>
+			<target ref="id39"/>
+			<label kind="guard" x="-646" y="-425">enabled == true</label>
+		</transition>
+		<transition>
+			<source ref="id39"/>
+			<target ref="id39"/>
+			<label kind="synchronisation" x="-484" y="-501">RR_reset?</label>
+			<label kind="assignment" x="-484" y="-484">t_quantum = 0</label>
+			<nail x="-510" y="-459"/>
+			<nail x="-416" y="-459"/>
+		</transition>
+		<transition>
+			<source ref="id39"/>
+			<target ref="id39"/>
+			<label kind="guard" x="-612" y="-501">buffer_index == 0</label>
+			<label kind="assignment" x="-603" y="-484">t_quantum = 0</label>
+			<nail x="-510" y="-459"/>
+			<nail x="-612" y="-459"/>
+		</transition>
+		<transition>
+			<source ref="id41"/>
+			<target ref="id39"/>
+			<label kind="synchronisation" x="-467" y="-374">execute[running]!</label>
+			<nail x="-450" y="-323"/>
+		</transition>
+		<transition>
+			<source ref="id40"/>
+			<target ref="id41"/>
+			<label kind="synchronisation" x="-569" y="-297">stop[to_suspend]!</label>
+			<label kind="assignment" x="-569" y="-280">t_quantum = 0</label>
+		</transition>
+		<transition>
+			<source ref="id39"/>
+			<target ref="id40"/>
+			<label kind="guard" x="-705" y="-391">t_quantum == quantum &amp;&amp;
+RR_condition() == true</label>
+			<label kind="assignment" x="-654" y="-357">cycle_buffer()</label>
+		</transition>
+	</template>
+	<system>// Place template instantiations here.
+Task(const b_id bID) = Task_model(bID);
+Sched = Scheduler(4);    //policy: 0 - FIFO, 2 - EDF, 3 - FPS, 4 - DMA, 5 - RMA
+Policy = DMA_model();
+Mon = Monitor_model();
+RR= RoundRobin_model(false, 5);
+// List one or more processes to be composed into a system.
+system  Task, Sched, Policy, RR;</system>
+	<queries>
+		<query>
+			<formula>Checks --------------------------------------------------------------------------------------------------------------------------------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>A[] not deadlock</formula>
+			<comment>Checking if no deadlock can occur</comment>
+		</query>
+		<query>
+			<formula>A[] forall(i: b_id) not Task(i).Error</formula>
+			<comment>checks if any of the tasks go into an Error state, if none of them do, the task set is schedulable</comment>
+		</query>
+		<query>
+			<formula>A[] not ((Task(0).Running &amp;&amp; Task(1).Running) || (Task(0).Running &amp;&amp; Task(2).Running) || (Task(1).Running &amp;&amp; Task(2).Running))</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>A[] not (Task(0).Running &amp;&amp; Task(1).Running)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>A[] not Task(2).Suspended</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>A[] not (Task(0).Error || Task(1).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Probabilities -------------------------------------------------------------------------------------------------------------------------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>	2 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1000] (&lt;&gt; (Task(0).Error || Task(1).Error))</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>	3 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=600] (&lt;&gt; Task(0).Suspended || Task(1).Suspended || Task(2).Suspended)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1300] (&lt;&gt; (Task(0).Error || Task(1).Error || Task(2).Error))</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; Task(0).Suspended)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; Task(1).Suspended)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; Task(2).Suspended)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1000] (&lt;&gt; Task(0).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1000] (&lt;&gt; Task(1).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1000] (&lt;&gt; Task(2).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula> 4 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; (Task(0).Error || Task(1).Error || Task(2).Error || Task(3).Error))</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; forall(i : b_id) Task(i).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=60] (&lt;&gt; Task(3).Suspended)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Pr [&lt;=1000] (&lt;&gt; Task(3).Error)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Simulations ---------------------------------------------------------------------------------------------------------------------------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>	2 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=20;10] {Task(0).Error, Task(1).Error}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100;1] {Task(0).Suspended, Task(1).Suspended}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100; 1] {Task(0).t_run, task_queue[0].DEADLINE, 
+8 + Task(1).t_run, 8 + task_queue[1].DEADLINE}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100; 10] {0.2* Task(0).Suspended, 0.5 + Task(0).Running, 0.5 + Task(0).Finished,
+1.7 + 0.2*Task(1).Suspended, Task(1).Running + 2, 2 + Task(1).Finished}</formula>
+			<comment>EDF</comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=200;3] {Mon.CPU_usage, Mon.CPU_total/2, Mon.CPU_busy/2, (Task(0).Running || Task(1).Running)}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>	3 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=60; 1] {0.2*Task(0).Suspended, 0.5 + Task(0).Running, 0.5 + Task(0).Finished, 1.7 + 0.2* Task(1).Suspended, Task(1).Running + 2, 2 + Task(1).Finished, 3.5 + 0.2* Task(2).Suspended, Task(2).Running + 4, Task(2).Finished + 4}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=66; 1] {0.2*Task(0).Suspended, 0.5 + Task(0).Running, 0.5 + Task(0).Finished, Task(0).Error + 0.5,
+1.7 + 0.2* Task(1).Suspended, Task(1).Running + 2, 2 + Task(1).Finished, Task(1).Error + 2,
+3.5 + 0.2* Task(2).Suspended, Task(2).Running + 4, Task(2).Finished + 4, Task(2).Error + 4}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=1000;10] {Task(0).Error, Task(1).Error, Task(2).Error}</formula>
+			<comment>useless?</comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=600;1] {Task(0).Suspended, Task(1).Suspended, Task(2).Suspended}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=60; 10] {Task(0).t_CPU, Task(0).t_run, task_queue[0].DEADLINE, 
+31 + Task(1).t_CPU, 31 + Task(1).t_run, 31 + task_queue[1].DEADLINE, 
+60 + Task(2).t_CPU, 60 + Task(2).t_run, 60 + task_queue[2].DEADLINE}</formula>
+			<comment>graph of tasks' CPU clock, total clock and deadline values through times</comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=120; 3] {
+task_queue[0].MIN_PERIOD, task_queue[0].MAX_PERIOD, Task(0).t_run, 
+35 + task_queue[1].MIN_PERIOD, 35 + task_queue[1].MAX_PERIOD, 35 + Task(1).t_run,  
+70 + task_queue[2].MIN_PERIOD, 70 + task_queue[2].MAX_PERIOD, 70 + Task(2).t_run}</formula>
+			<comment>for each task:  -&gt; The upper period bound (0 for sporadic and  aperiodic tasks)
+		-&gt; The lower period bound (0 for aperiodic tasks)
+		-&gt; The t_run clock value which corresponds to how much time the task has taken to complete</comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=1000;1] {Mon.Task0count, Mon.Task1count, Mon.Task2count}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=200; 3] {Mon.CPU_usage, Mon.CPU_total/2, Mon.CPU_busy/2, (Task(0).Running || Task(1).Running || Task(2).Running)}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>4 tasks -------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=60; 1] {0.2*Task(0).Suspended, 0.5 + Task(0).Running, 0.5 + Task(0).Finished, 
+1.7 + 0.2* Task(1).Suspended, Task(1).Running + 2, 2 + Task(1).Finished, 
+3.5 + 0.2* Task(2).Suspended, Task(2).Running + 4, Task(2).Finished + 4,
+5.5 + 0.2* Task(3).Suspended, Task(3).Running + 6, Task(3).Finished + 6}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>Deprecated ----------------------------------------------------------------------------------------------------------------------------------------------------------</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100; 1] {0.2* Mon.Task0sus, 0.5 + Mon.Task0run,
+1.7 + 0.2* Mon.Task1sus, 2 + Mon.Task1run,
+3.5 + 0.2* Mon.Task2sus, 4 + Mon.Task2run,
+5.5 + buffer[0].id}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100; 1] {Task(1).Running}</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>simulate [&lt;=100;1] {buffer_index, N + 0.5 + buffer[0].id}</formula>
+			<comment></comment>
+		</query>
+	</queries>
+</nta>
